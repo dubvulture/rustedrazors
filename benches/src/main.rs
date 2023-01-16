@@ -1,56 +1,71 @@
 use std::hint::black_box;
+use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use rustedrazors::atomic_spsc;
 mod mutex_spsc;
 
+const PAYLOAD_SIZE: usize = 1024;
+
 #[derive(Clone, Copy)]
 struct Payload {
-    _p: [u8; 1024],
+    _p: [u8; PAYLOAD_SIZE],
 }
 
 impl Default for Payload {
     fn default() -> Self {
-        Payload { _p: [0; 1024] }
+        Payload {
+            _p: [0; PAYLOAD_SIZE],
+        }
     }
 }
 
 macro_rules! rw_ops {
     ($r:ident, $w:ident) => {{
-        const RUNTIME: Duration = Duration::from_secs(1);
+        const RUNTIME: Duration = Duration::from_secs(5);
 
-        let r_handle = thread::spawn(move || {
-            let start = Instant::now();
-            let mut value = Payload::default();
-            let mut iters: u64 = 0;
-            loop {
-                black_box(value);
-                $r.read(&mut value);
-                iters += 1;
+        let barrier = Arc::new(Barrier::new(2));
 
-                let elapsed = Instant::now() - start;
-                if elapsed > RUNTIME {
-                    break;
+        let r_handle = thread::spawn({
+            let barrier = Arc::clone(&barrier);
+            move || {
+                barrier.wait();
+                let start = Instant::now();
+                let mut value = Payload::default();
+                let mut iters: u64 = 0;
+                loop {
+                    black_box(value);
+                    $r.read(&mut value);
+                    iters += 1;
+
+                    let elapsed = Instant::now() - start;
+                    if elapsed > RUNTIME {
+                        break;
+                    }
                 }
+                iters
             }
-            iters
         });
-        let w_handle = thread::spawn(move || {
-            let start = Instant::now();
-            let value = Payload::default();
-            let mut iters: u64 = 0;
-            loop {
-                black_box(value);
-                $w.write(value);
-                iters += 1;
+        let w_handle = thread::spawn({
+            let barrier = Arc::clone(&barrier);
+            move || {
+                barrier.wait();
+                let start = Instant::now();
+                let value = Payload::default();
+                let mut iters: u64 = 0;
+                loop {
+                    black_box(value);
+                    $w.write(value);
+                    iters += 1;
 
-                let elapsed = Instant::now() - start;
-                if elapsed > RUNTIME {
-                    break;
+                    let elapsed = Instant::now() - start;
+                    if elapsed > RUNTIME {
+                        break;
+                    }
                 }
+                iters
             }
-            iters
         });
 
         let r_res = r_handle.join();
