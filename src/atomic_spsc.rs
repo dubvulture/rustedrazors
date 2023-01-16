@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 const POOL_SIZE: usize = 3;
 
-struct Data<T> {
+struct Inner<T> {
     pool: [UnsafeCell<T>; POOL_SIZE],
     free: [AtomicBool; POOL_SIZE],
     // either -1 or in [0, POOL_SIZE)
@@ -14,23 +14,23 @@ struct Data<T> {
 
 /// Safety: enable SYnc when T is Send to allow sharing UnsafeCell.
 /// UnsafeCell is accessed without data races by design.
-unsafe impl<T> Sync for Data<T> where T: Send {}
+unsafe impl<T> Sync for Inner<T> where T: Send {}
 
 pub struct Reader<T> {
-    atom: Arc<Data<T>>,
+    inner: Arc<Inner<T>>,
 }
 
 pub struct Writer<T> {
-    atom: Arc<Data<T>>,
+    inner: Arc<Inner<T>>,
 }
 
-impl<T> Data<T>
+impl<T> Inner<T>
 where
     T: Clone,
 {
-    /// Constructs a new [`Data`] initialized with the provided value.
+    /// Constructs a new [`Inner`] initialized with the provided value.
     fn new(init: T) -> Self {
-        Data {
+        Inner {
             pool: [(); POOL_SIZE].map(|_| UnsafeCell::new(init.clone())),
             free: [(); POOL_SIZE].map(|_| AtomicBool::new(true)),
             buffer: AtomicIsize::new(-1),
@@ -105,7 +105,7 @@ where
     T: Clone,
 {
     pub fn read(&mut self, value: &mut T) -> bool {
-        self.atom.read(value)
+        self.inner.read(value)
     }
 }
 
@@ -114,7 +114,7 @@ where
     T: Clone,
 {
     pub fn write(&mut self, value: T) {
-        self.atom.write(value)
+        self.inner.write(value)
     }
 }
 
@@ -123,8 +123,10 @@ pub fn new<T>(init: T) -> (Reader<T>, Writer<T>)
 where
     T: Clone,
 {
-    let atom = Arc::new(Data::new(init));
-    let r = Reader { atom: atom.clone() };
-    let w = Writer { atom };
+    let inner = Arc::new(Inner::new(init));
+    let r = Reader {
+        inner: inner.clone(),
+    };
+    let w = Writer { inner };
     (r, w)
 }
