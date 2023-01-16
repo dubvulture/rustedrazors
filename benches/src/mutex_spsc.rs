@@ -1,13 +1,14 @@
 /// Implement a trivial atomic_spsc-like data structures using a Mutex
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 struct Inner<T> {
     data: T,
-    to_read: bool,
 }
 
 struct Shared<T> {
     inner: Mutex<Inner<T>>,
+    to_read: AtomicBool,
 }
 
 pub struct Reader<T> {
@@ -23,10 +24,7 @@ where
     T: Clone,
 {
     fn new(init: T) -> Self {
-        Inner {
-            data: init,
-            to_read: false,
-        }
+        Inner { data: init }
     }
 }
 
@@ -37,20 +35,25 @@ where
     fn new(init: T) -> Self {
         Shared {
             inner: Mutex::new(Inner::new(init)),
+            to_read: AtomicBool::new(false),
         }
     }
 
     fn write(&self, value: T) {
         let mut inner = self.inner.lock().unwrap();
         inner.data = value;
-        inner.to_read = true;
+        self.to_read.store(true, Ordering::Release);
     }
 
     fn read(&self, value: &mut T) -> bool {
-        let mut inner = self.inner.lock().unwrap();
-        *value = inner.data.clone();
-        inner.to_read = false;
-        true
+        if self.to_read.load(Ordering::Acquire) {
+            let inner = self.inner.lock().unwrap();
+            *value = inner.data.clone();
+            self.to_read.store(false, Ordering::Release);
+            true
+        } else {
+            false
+        }
     }
 }
 
