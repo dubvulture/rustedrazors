@@ -23,6 +23,59 @@ impl Default for Payload {
     }
 }
 
+fn write_ops<R, W>(r: R, w: W) -> Vec<u128>
+where
+    R: Reader<Payload> + std::marker::Send + 'static,
+    W: Writer<Payload> + std::marker::Send + 'static,
+{
+    const ITERS: usize = 1000000;
+
+    let barrier = Arc::new(Barrier::new(2));
+    let (tx, rx) = mpsc::channel();
+
+    let r_handle = thread::spawn({
+        let barrier = Arc::clone(&barrier);
+        move || {
+            barrier.wait();
+            let mut value = Payload::default();
+            for i in 0usize.. {
+                black_box(value);
+                _ = r.read(&mut value);
+                if i % 64 == 0 && rx.try_recv().is_ok() {
+                    break;
+                }
+            }
+        }
+    });
+    let w_handle = thread::spawn({
+        let barrier = Arc::clone(&barrier);
+        move || {
+            barrier.wait();
+            let value = Payload::default();
+            let mut success = Vec::with_capacity(ITERS);
+            for _ in 0..ITERS {
+                let start = Instant::now();
+                black_box(value);
+                w.write(value);
+                let ns = start.elapsed().as_nanos();
+                success.push(ns);
+            }
+            _ = tx.send(());
+            success
+        }
+    });
+
+    let r_res = r_handle.join();
+    let w_res = w_handle.join();
+
+    match (r_res, w_res) {
+        (Ok(_), Ok(nanos)) => nanos,
+        _ => {
+            panic!("Something went wrong");
+        }
+    }
+}
+
 fn read_ops<R, W>(r: R, w: W) -> (Vec<u128>, Vec<u128>)
 where
     R: Reader<Payload> + std::marker::Send + 'static,
@@ -60,7 +113,7 @@ where
         move || {
             barrier.wait();
             let value = Payload::default();
-            for i in 0.. {
+            for i in 0usize.. {
                 black_box(value);
                 w.write(value);
                 if i % 64 == 0 && rx.try_recv().is_ok() {
@@ -81,8 +134,13 @@ where
     }
 }
 
-fn bench_function(name: &str, fun: fn() -> (Vec<u128>, Vec<u128>)) {
-    let (success, failure) = fun();
+fn bench_function(
+    name: &str,
+    read_fun: fn() -> (Vec<u128>, Vec<u128>),
+    write_fun: fn() -> Vec<u128>,
+) {
+    let (success, failure) = read_fun();
+    let writes = write_fun();
 
     use std::fs::File;
     use std::io::{BufWriter, Write};
@@ -98,15 +156,35 @@ fn bench_function(name: &str, fun: fn() -> (Vec<u128>, Vec<u128>)) {
     for i in failure {
         _ = write!(f, "{0}\n", i);
     }
+
+    let filename = format!("{}_writes.txt", name);
+    let mut f = BufWriter::new(File::create(filename).expect("Unable to create file"));
+    for i in writes {
+        _ = write!(f, "{0}\n", i);
+    }
 }
 
 fn main() {
-    bench_function("mutex_reader", || {
-        let (r, w) = mutex_spsc::new::<Payload>(Payload::default());
-        read_ops(r, w)
-    });
-    bench_function("atomic_reader", || {
-        let (r, w) = atomic_spsc::new::<Payload>(Payload::default());
-        read_ops(r, w)
-    });
+    bench_function(
+        "mutex_reader",
+        || {
+            let (r, w) = mutex_spsc::new::<Payload>(Payload::default());
+            read_ops(r, w)
+        },
+        || {
+            let (r, w) = mutex_spsc::new::<Payload>(Payload::default());
+            write_ops(r, w)
+        },
+    );
+    bench_function(
+        "atomic_reader",
+        || {
+            let (r, w) = atomic_spsc::new::<Payload>(Payload::default());
+            read_ops(r, w)
+        },
+        || {
+            let (r, w) = atomic_spsc::new::<Payload>(Payload::default());
+            write_ops(r, w)
+        },
+    );
 }
