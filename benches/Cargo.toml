@@ -9,8 +9,3 @@ publish = false
 
 [dependencies]
 rustedrazors = { path = "../" }
-
-[profile.release]
-lto = true
-opt-level = 3
-debug = false
