@@ -1,5 +1,6 @@
-use std::cell::UnsafeCell;
+use crate::{Reader, Writer};
 
+use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::Arc;
 
@@ -16,11 +17,11 @@ struct Inner<T> {
 /// UnsafeCell is accessed without data races by design.
 unsafe impl<T> Sync for Inner<T> where T: Send {}
 
-pub struct Reader<T> {
+pub struct ReadHandle<T> {
     inner: Arc<Inner<T>>,
 }
 
-pub struct Writer<T> {
+pub struct WriteHandle<T> {
     inner: Arc<Inner<T>>,
 }
 
@@ -100,33 +101,35 @@ where
     }
 }
 
-impl<T> Reader<T>
+impl<T> Reader<T> for ReadHandle<T>
 where
     T: Clone,
 {
-    pub fn read(&self, value: &mut T) -> bool {
+    fn read(&self, value: &mut T) -> bool {
         self.inner.read(value)
     }
 }
 
-impl<T> Writer<T>
+impl<T> Writer<T> for WriteHandle<T>
 where
     T: Clone,
 {
-    pub fn write(&self, value: T) {
+    fn write(&self, value: T) {
         self.inner.write(value)
     }
 }
 
 /// Construct a new read and write handle pair from an data structure initialzied with `init`.
-pub fn new<T>(init: T) -> (Reader<T>, Writer<T>)
+pub fn new<T>(init: T) -> (ReadHandle<T>, WriteHandle<T>)
 where
     T: Clone,
 {
     let inner = Arc::new(Inner::new(init));
-    let r = Reader {
-        inner: inner.clone(),
+    let r = ReadHandle {
+        inner: Arc::clone(&inner),
     };
-    let w = Writer { inner };
+    let w = WriteHandle {
+        inner: Arc::clone(&inner),
+    };
     (r, w)
 }

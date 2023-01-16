@@ -1,3 +1,5 @@
+use rustedrazors::{Reader, Writer};
+
 /// Implement a trivial atomic_spsc-like data structures using a Mutex
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -11,11 +13,11 @@ struct Shared<T> {
     to_read: AtomicBool,
 }
 
-pub struct Reader<T> {
+pub struct ReadHandle<T> {
     inner: Arc<Shared<T>>,
 }
 
-pub struct Writer<T> {
+pub struct WriteHandle<T> {
     inner: Arc<Shared<T>>,
 }
 
@@ -57,33 +59,33 @@ where
     }
 }
 
-impl<T> Reader<T>
+impl<T> Reader<T> for ReadHandle<T>
 where
     T: Clone,
 {
-    pub fn read(&self, value: &mut T) -> bool {
+    fn read(&self, value: &mut T) -> bool {
         self.inner.read(value)
     }
 }
 
-impl<T> Writer<T>
+impl<T> Writer<T> for WriteHandle<T>
 where
     T: Clone,
 {
-    pub fn write(&self, value: T) {
+    fn write(&self, value: T) {
         self.inner.write(value)
     }
 }
 
-pub fn new<T>(init: T) -> (Reader<T>, Writer<T>)
+pub fn new<T>(init: T) -> (ReadHandle<T>, WriteHandle<T>)
 where
     T: Clone,
 {
     let inner = Arc::new(Shared::new(init));
-    let r = Reader {
+    let r = ReadHandle {
         inner: Arc::clone(&inner),
     };
-    let w = Writer {
+    let w = WriteHandle {
         inner: Arc::clone(&inner),
     };
     (r, w)

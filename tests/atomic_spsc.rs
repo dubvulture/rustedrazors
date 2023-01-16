@@ -4,6 +4,7 @@ mod tests {
     use std::thread;
 
     use rustedrazors::atomic_spsc;
+    use rustedrazors::{Reader, Writer};
 
     #[derive(Clone)]
     struct ClonePayload {

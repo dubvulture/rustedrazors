@@ -4,6 +4,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rustedrazors::atomic_spsc;
+use rustedrazors::{Reader, Writer};
 mod mutex_spsc;
 
 const PAYLOAD_SIZE: usize = 1024;
