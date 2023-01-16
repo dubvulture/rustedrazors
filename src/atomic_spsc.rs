@@ -31,17 +31,8 @@ where
     /// Constructs a new [`Data`] initialized with the provided value.
     fn new(init: T) -> Self {
         Data {
-            // TODO: create a macro
-            pool: [
-                UnsafeCell::new(init.clone()),
-                UnsafeCell::new(init.clone()),
-                UnsafeCell::new(init.clone()),
-            ],
-            free: [
-                AtomicBool::new(true),
-                AtomicBool::new(true),
-                AtomicBool::new(true),
-            ],
+            pool: [(); POOL_SIZE].map(|_| UnsafeCell::new(init.clone())),
+            free: [(); POOL_SIZE].map(|_| AtomicBool::new(true)),
             buffer: AtomicIsize::new(-1),
         }
     }
