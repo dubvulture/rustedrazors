@@ -61,7 +61,7 @@ impl<T> Reader<T>
 where
     T: Clone,
 {
-    pub fn read(&mut self, value: &mut T) -> bool {
+    pub fn read(&self, value: &mut T) -> bool {
         self.inner.read(value)
     }
 }
@@ -70,7 +70,7 @@ impl<T> Writer<T>
 where
     T: Clone,
 {
-    pub fn write(&mut self, value: T) {
+    pub fn write(&self, value: T) {
         self.inner.write(value)
     }
 }

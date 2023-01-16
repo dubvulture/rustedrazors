@@ -77,11 +77,11 @@ fn bench_function(name: &'static str, fun: fn() -> (f64, f64)) {
 
 fn main() {
     bench_function("mutex", || {
-        let (mut r, mut w) = mutex_spsc::new::<Payload>(Payload::default());
+        let (r, w) = mutex_spsc::new::<Payload>(Payload::default());
         rw_ops!(r, w)
     });
     bench_function("atomic", || {
-        let (mut r, mut w) = atomic_spsc::new::<Payload>(Payload::default());
+        let (r, w) = atomic_spsc::new::<Payload>(Payload::default());
         rw_ops!(r, w)
     });
 }

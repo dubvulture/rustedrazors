@@ -33,7 +33,7 @@ mod tests {
         // Allow creation and usage across threads of atomic_spsc with either clonable and copayable
         // types
 
-        let (mut clone_r, mut clone_w) = atomic_spsc::new::<ClonePayload>(ClonePayload::default());
+        let (clone_r, clone_w) = atomic_spsc::new::<ClonePayload>(ClonePayload::default());
 
         let _ = thread::spawn(move || {
             let mut clone_p = ClonePayload::default();
@@ -46,7 +46,7 @@ mod tests {
         })
         .join();
 
-        let (mut copy_r, mut copy_w) = atomic_spsc::new::<CopyPayload>(CopyPayload::default());
+        let (copy_r, copy_w) = atomic_spsc::new::<CopyPayload>(CopyPayload::default());
         let _ = thread::spawn(move || {
             let mut copy_p = CopyPayload::default();
             copy_r.read(&mut copy_p);
@@ -63,7 +63,7 @@ mod tests {
     fn test_basics() {
         // Test basic API
 
-        let (mut r, mut w) = atomic_spsc::new::<i32>(0);
+        let (r, w) = atomic_spsc::new::<i32>(0);
 
         let mut value = -1;
         let mut result: bool;
@@ -103,7 +103,7 @@ mod tests {
         // Test atomic_spsc with i32 across threads with multiple iterations.
         // Maybe find a way to enable thread sanitizers?
 
-        let (mut r, mut w) = atomic_spsc::new::<i32>(0);
+        let (r, w) = atomic_spsc::new::<i32>(0);
 
         let read_res = thread::spawn(move || {
             let mut value = 0;
