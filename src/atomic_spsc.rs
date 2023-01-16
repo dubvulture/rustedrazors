@@ -8,7 +8,7 @@ const POOL_SIZE: usize = 3;
 struct Data<T> {
     pool: [UnsafeCell<T>; POOL_SIZE],
     free: [AtomicBool; POOL_SIZE],
-    // either -1 or in [0, POOL_SIZE]
+    // either -1 or in [0, POOL_SIZE)
     buffer: AtomicIsize,
 }
 
@@ -52,7 +52,7 @@ where
     fn write(&self, value: T) {
         let idx = self.acquire();
         self.write_to(idx, value);
-        // Safety: this is fine, idx can only be in [0, POOL_SIZE]
+        // Safety: this is fine, idx can only be in [0, POOL_SIZE)
         let buffer = self.buffer.swap(idx as isize, Ordering::AcqRel);
         if buffer != -1 {
             self.release(buffer as usize);
@@ -75,7 +75,7 @@ where
         match buffer {
             -1 => false,
             buffer => {
-                // Safety: this is fine, idx can only be in [0, POOL_SIZE]
+                // Safety: this is fine, idx can only be in [0, POOL_SIZE)
                 let buffer = buffer as usize;
                 self.read_from(buffer, value);
                 self.release(buffer);
