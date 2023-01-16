@@ -1,0 +1,16 @@
+[workspace]
+# don't include in workspace
+
+[package]
+name = "benchmark_ops"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+rustedrazors = { path = "../" }
+
+[profile.release]
+lto = true
+opt-level = 3
+debug = false
