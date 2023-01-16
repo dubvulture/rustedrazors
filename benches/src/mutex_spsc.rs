@@ -81,8 +81,10 @@ where
 {
     let inner = Arc::new(Shared::new(init));
     let r = Reader {
-        inner: inner.clone(),
+        inner: Arc::clone(&inner),
     };
-    let w = Writer { inner };
+    let w = Writer {
+        inner: Arc::clone(&inner),
+    };
     (r, w)
 }
