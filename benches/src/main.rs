@@ -1,7 +1,8 @@
 use std::hint::black_box;
+use std::sync::mpsc;
 use std::sync::{Arc, Barrier};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use rustedrazors::atomic_spsc;
 use rustedrazors::{Reader, Writer};
@@ -22,53 +23,50 @@ impl Default for Payload {
     }
 }
 
-fn rw_ops<R, W>(r: R, w: W) -> (f64, f64)
+fn read_ops<R, W>(r: R, w: W) -> (Vec<u128>, Vec<u128>)
 where
     R: Reader<Payload> + std::marker::Send + 'static,
     W: Writer<Payload> + std::marker::Send + 'static,
 {
-    const RUNTIME: Duration = Duration::from_secs(5);
+    const ITERS: usize = 1000000;
 
     let barrier = Arc::new(Barrier::new(2));
+    let (tx, rx) = mpsc::channel();
 
     let r_handle = thread::spawn({
         let barrier = Arc::clone(&barrier);
         move || {
             barrier.wait();
-            let start = Instant::now();
             let mut value = Payload::default();
-            let mut iters: u64 = 0;
-            loop {
+            let mut success = Vec::with_capacity(ITERS);
+            let mut failure = Vec::with_capacity(ITERS);
+            for _ in 0..ITERS {
+                let start = Instant::now();
                 black_box(value);
-                r.read(&mut value);
-                iters += 1;
-
-                let elapsed = Instant::now() - start;
-                if elapsed > RUNTIME {
-                    break;
+                let res = r.read(&mut value);
+                let ns = start.elapsed().as_nanos();
+                if res {
+                    success.push(ns);
+                } else {
+                    failure.push(ns);
                 }
             }
-            iters
+            _ = tx.send(());
+            (success, failure)
         }
     });
     let w_handle = thread::spawn({
         let barrier = Arc::clone(&barrier);
         move || {
             barrier.wait();
-            let start = Instant::now();
             let value = Payload::default();
-            let mut iters: u64 = 0;
-            loop {
+            for i in 0.. {
                 black_box(value);
                 w.write(value);
-                iters += 1;
-
-                let elapsed = Instant::now() - start;
-                if elapsed > RUNTIME {
+                if i % 64 == 0 && rx.try_recv().is_ok() {
                     break;
                 }
             }
-            iters
         }
     });
 
@@ -76,30 +74,39 @@ where
     let w_res = w_handle.join();
 
     match (r_res, w_res) {
-        (Ok(r_iters), Ok(w_iters)) => {
-            let r_ops = r_iters as f64 / RUNTIME.as_secs() as f64 / 1000f64;
-            let w_ops = w_iters as f64 / RUNTIME.as_secs() as f64 / 1000f64;
-            (r_ops, w_ops)
-        }
+        (Ok(nanos), Ok(_)) => nanos,
         _ => {
             panic!("Something went wrong");
         }
     }
 }
 
-fn bench_function(name: &'static str, fun: fn() -> (f64, f64)) {
-    let (r, w) = fun();
-    println!("{} | Reader {} Kops/s", name, r);
-    println!("{} | Writer {} Kops/s", name, w);
+fn bench_function(name: &str, fun: fn() -> (Vec<u128>, Vec<u128>)) {
+    let (success, failure) = fun();
+
+    use std::fs::File;
+    use std::io::{BufWriter, Write};
+
+    let filename = format!("{}_success.txt", name);
+    let mut f = BufWriter::new(File::create(filename).expect("Unable to create file"));
+    for i in success {
+        _ = write!(f, "{0}\n", i);
+    }
+
+    let filename = format!("{}_failure.txt", name);
+    let mut f = BufWriter::new(File::create(filename).expect("Unable to create file"));
+    for i in failure {
+        _ = write!(f, "{0}\n", i);
+    }
 }
 
 fn main() {
-    bench_function("mutex", || {
+    bench_function("mutex_reader", || {
         let (r, w) = mutex_spsc::new::<Payload>(Payload::default());
-        rw_ops(r, w)
+        read_ops(r, w)
     });
-    bench_function("atomic", || {
+    bench_function("atomic_reader", || {
         let (r, w) = atomic_spsc::new::<Payload>(Payload::default());
-        rw_ops(r, w)
+        read_ops(r, w)
     });
 }
