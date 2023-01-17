@@ -134,7 +134,7 @@ where
     }
 }
 
-fn bench_function(
+fn bench_function_impl(
     name: &str,
     read_fun: fn() -> (Vec<u128>, Vec<u128>),
     write_fun: fn() -> Vec<u128>,
@@ -164,27 +164,23 @@ fn bench_function(
     }
 }
 
+macro_rules! bench_function {
+    ($name:expr, $factory:ident) => {{
+        bench_function_impl(
+            $name,
+            || {
+                let (r, w) = $factory::new::<Payload>(Payload::default());
+                read_ops(r, w)
+            },
+            || {
+                let (r, w) = $factory::new::<Payload>(Payload::default());
+                write_ops(r, w)
+            },
+        );
+    }};
+}
+
 fn main() {
-    bench_function(
-        "mutex_reader",
-        || {
-            let (r, w) = mutex_spsc::new::<Payload>(Payload::default());
-            read_ops(r, w)
-        },
-        || {
-            let (r, w) = mutex_spsc::new::<Payload>(Payload::default());
-            write_ops(r, w)
-        },
-    );
-    bench_function(
-        "atomic_reader",
-        || {
-            let (r, w) = atomic_spsc::new::<Payload>(Payload::default());
-            read_ops(r, w)
-        },
-        || {
-            let (r, w) = atomic_spsc::new::<Payload>(Payload::default());
-            write_ops(r, w)
-        },
-    );
+    bench_function!("mutex_reader", mutex_spsc);
+    bench_function!("atomic_reader", atomic_spsc);
 }
