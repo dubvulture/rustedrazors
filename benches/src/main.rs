@@ -1,4 +1,5 @@
 use std::hint::black_box;
+use std::marker::Send;
 use std::sync::mpsc;
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -25,50 +26,51 @@ impl Default for Payload {
 
 fn write_ops<R, W>(r: R, w: W) -> Vec<u128>
 where
-    R: Reader<Payload> + std::marker::Send + 'static,
-    W: Writer<Payload> + std::marker::Send + 'static,
+    R: Reader<Payload> + Send,
+    W: Writer<Payload> + Send,
 {
     const ITERS: usize = 1000000;
 
     let barrier = Arc::new(Barrier::new(2));
     let (tx, rx) = mpsc::channel();
 
-    let r_handle = thread::spawn({
-        let barrier = Arc::clone(&barrier);
-        move || {
-            barrier.wait();
-            let mut value = Payload::default();
-            for i in 0usize.. {
-                black_box(value);
-                _ = r.read(&mut value);
-                if i % 64 == 0 && rx.try_recv().is_ok() {
-                    break;
+    let res = thread::scope(|s| {
+        let r_handle = s.spawn({
+            let barrier = Arc::clone(&barrier);
+            move || {
+                barrier.wait();
+                let mut value = Payload::default();
+                for i in 0usize.. {
+                    black_box(value);
+                    _ = r.read(&mut value);
+                    if i % 64 == 0 && rx.try_recv().is_ok() {
+                        break;
+                    }
                 }
             }
-        }
-    });
-    let w_handle = thread::spawn({
-        let barrier = Arc::clone(&barrier);
-        move || {
-            barrier.wait();
-            let value = Payload::default();
-            let mut success = Vec::with_capacity(ITERS);
-            for _ in 0..ITERS {
-                let start = Instant::now();
-                black_box(value);
-                w.write(value);
-                let ns = start.elapsed().as_nanos();
-                success.push(ns);
+        });
+        let w_handle = s.spawn({
+            let barrier = Arc::clone(&barrier);
+            move || {
+                barrier.wait();
+                let value = Payload::default();
+                let mut success = Vec::with_capacity(ITERS);
+                for _ in 0..ITERS {
+                    let start = Instant::now();
+                    black_box(value);
+                    w.write(value);
+                    let ns = start.elapsed().as_nanos();
+                    success.push(ns);
+                }
+                _ = tx.send(());
+                success
             }
-            _ = tx.send(());
-            success
-        }
+        });
+
+        (r_handle.join(), w_handle.join())
     });
 
-    let r_res = r_handle.join();
-    let w_res = w_handle.join();
-
-    match (r_res, w_res) {
+    match res {
         (Ok(_), Ok(nanos)) => nanos,
         _ => {
             panic!("Something went wrong");
@@ -78,55 +80,56 @@ where
 
 fn read_ops<R, W>(r: R, w: W) -> (Vec<u128>, Vec<u128>)
 where
-    R: Reader<Payload> + std::marker::Send + 'static,
-    W: Writer<Payload> + std::marker::Send + 'static,
+    R: Reader<Payload> + Send,
+    W: Writer<Payload> + Send,
 {
     const ITERS: usize = 1000000;
 
     let barrier = Arc::new(Barrier::new(2));
     let (tx, rx) = mpsc::channel();
 
-    let r_handle = thread::spawn({
-        let barrier = Arc::clone(&barrier);
-        move || {
-            barrier.wait();
-            let mut value = Payload::default();
-            let mut success = Vec::with_capacity(ITERS);
-            let mut failure = Vec::with_capacity(ITERS);
-            for _ in 0..ITERS {
-                let start = Instant::now();
-                black_box(value);
-                let res = r.read(&mut value);
-                let ns = start.elapsed().as_nanos();
-                if res {
-                    success.push(ns);
-                } else {
-                    failure.push(ns);
+    let res = thread::scope(|s| {
+        let r_handle = s.spawn({
+            let barrier = Arc::clone(&barrier);
+            move || {
+                barrier.wait();
+                let mut value = Payload::default();
+                let mut success = Vec::with_capacity(ITERS);
+                let mut failure = Vec::with_capacity(ITERS);
+                for _ in 0..ITERS {
+                    let start = Instant::now();
+                    black_box(value);
+                    let res = r.read(&mut value);
+                    let ns = start.elapsed().as_nanos();
+                    if res {
+                        success.push(ns);
+                    } else {
+                        failure.push(ns);
+                    }
+                }
+                _ = tx.send(());
+                (success, failure)
+            }
+        });
+        let w_handle = s.spawn({
+            let barrier = Arc::clone(&barrier);
+            move || {
+                barrier.wait();
+                let value = Payload::default();
+                for i in 0usize.. {
+                    black_box(value);
+                    w.write(value);
+                    if i % 64 == 0 && rx.try_recv().is_ok() {
+                        break;
+                    }
                 }
             }
-            _ = tx.send(());
-            (success, failure)
-        }
-    });
-    let w_handle = thread::spawn({
-        let barrier = Arc::clone(&barrier);
-        move || {
-            barrier.wait();
-            let value = Payload::default();
-            for i in 0usize.. {
-                black_box(value);
-                w.write(value);
-                if i % 64 == 0 && rx.try_recv().is_ok() {
-                    break;
-                }
-            }
-        }
+        });
+
+        (r_handle.join(), w_handle.join())
     });
 
-    let r_res = r_handle.join();
-    let w_res = w_handle.join();
-
-    match (r_res, w_res) {
+    match res {
         (Ok(nanos), Ok(_)) => nanos,
         _ => {
             panic!("Something went wrong");
