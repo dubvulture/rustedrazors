@@ -1,6 +1,7 @@
 use crate::{Reader, Writer};
 
-use std::cell::UnsafeCell;
+use std::cell::{Cell, UnsafeCell};
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::Arc;
 
@@ -13,16 +14,31 @@ struct Inner<T> {
     buffer: AtomicIsize,
 }
 
-/// Safety: enable SYnc when T is Send to allow sharing UnsafeCell.
-/// UnsafeCell is accessed without data races by design.
+/// This is a Single-Producer/Single-Consumer data structure so we must follow these laws:
+/// 1. both `ReadHandle` and `WriteHandle` must point to the same `Inner` struct
+/// 2. only one thread can **own** or **reference** a `ReadHandle`
+/// 3. only one thread can **own** or **reference** a `WriteHandle`
+
+/// In order to comply, `Sync` and `Send` traits must be carefully handled.
+///
+/// 1. `Inner` should implemented `Sync` (but only if T is `Send`)
+/// 2. `ReadHandle` should **not** implement `Sync`, but allow `Send`
+/// 3. `WriteHandle` should **not** implement `Sync`, but allow `Send`
+///
+/// These requires negative trait bounds which are not yet implemented.
+/// For now add `_unimpl_sync` as `PhantomData<Cell>` to both `ReadHandle` and `WriteHandle` in order to
+/// avoid auto implementation of Sync trait for them.
+
 unsafe impl<T> Sync for Inner<T> where T: Send {}
 
 pub struct ReadHandle<T> {
     inner: Arc<Inner<T>>,
+    _unimpl_sync: PhantomData<Cell<()>>,
 }
 
 pub struct WriteHandle<T> {
     inner: Arc<Inner<T>>,
+    _unimpl_sync: PhantomData<Cell<()>>,
 }
 
 impl<T> Inner<T>
@@ -127,9 +143,11 @@ where
     let inner = Arc::new(Inner::new(init));
     let r = ReadHandle {
         inner: Arc::clone(&inner),
+        _unimpl_sync: std::marker::PhantomData,
     };
     let w = WriteHandle {
         inner: Arc::clone(&inner),
+        _unimpl_sync: std::marker::PhantomData,
     };
     (r, w)
 }
