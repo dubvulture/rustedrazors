@@ -12,26 +12,22 @@ def parse(filename):
     return res
 
 def main():
-    ars = parse("atomic_reader_success.txt")
-    arf = parse("atomic_reader_failure.txt")
-    arw = parse("atomic_reader_writes.txt")
-    mrs = parse("mutex_reader_success.txt")
-    mrf = parse("mutex_reader_failure.txt")
-    mrw = parse("mutex_reader_writes.txt")
+    benches = ["atomic", "blocking", "mutex", "ticket"]
+    colors = ["red", "green", "purple", "blue"]
+    fig, axes = plt.subplots(len(benches), 3)
 
-    fig, (axa, axm) = plt.subplots(2, 3)
-    axa[0].hist(ars, bins=100, label="atomic_reader_success")
-    axa[0].legend()
-    axa[1].hist(arf, bins=100, label="atomic_reader_failure")
-    axa[1].legend()
-    axa[2].hist(arw, bins=100, label="atomic_reader_writes")
-    axa[2].legend()
-    axm[0].hist(mrs, bins=100, label="mutex_reader_success")
-    axm[0].legend()
-    axm[1].hist(mrf, bins=100, label="mutex_reader_failure")
-    axm[1].legend()
-    axm[2].hist(mrw, bins=100, label="mutex_reader_writes")
-    axm[2].legend()
+    for ax, bench, color in zip(axes, benches, colors):
+        rs = parse(f"{bench}_reader_success.txt")
+        rf = parse(f"{bench}_reader_failure.txt")
+        rw = parse(f"{bench}_reader_writes.txt")
+
+        ax[0].hist(rs, bins=100, label=f"{bench}_reader_success", color=color)
+        ax[0].legend()
+        ax[1].hist(rf, bins=100, label=f"{bench}_reader_failure", color=color)
+        ax[1].legend()
+        ax[2].hist(rw, bins=100, label=f"{bench}_reader_writes", color=color)
+        ax[2].legend()
+
     plt.show()
 
 if __name__ == '__main__':
