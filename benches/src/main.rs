@@ -7,7 +7,7 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::Instant;
 
-use rustedrazors::{atomic_spsc, mutex_spsc};
+use rustedrazors::{atomic_spsc, blocking_spsc, mutex_spsc, ticket_spsc};
 use rustedrazors::{Reader, Writer};
 
 const PAYLOAD_SIZE: usize = 1024;
@@ -189,5 +189,7 @@ macro_rules! bench_function {
 
 fn main() {
     bench_function!("atomic_reader", atomic_spsc);
+    bench_function!("blocking_reader", blocking_spsc);
     bench_function!("mutex_reader", mutex_spsc);
+    bench_function!("ticket_reader", ticket_spsc);
 }
