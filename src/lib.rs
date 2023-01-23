@@ -7,3 +7,4 @@ pub trait Writer<T> {
 }
 
 pub mod atomic_spsc;
+pub mod mutex_spsc;

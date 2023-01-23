@@ -1,24 +1,20 @@
-use rustedrazors::{Reader, Writer};
+use crate::{Reader, Writer};
 
 /// Implement a trivial atomic_spsc-like data structures using a Mutex
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 struct Inner<T> {
-    data: T,
-}
-
-struct Shared<T> {
-    inner: Mutex<Inner<T>>,
+    data: Mutex<T>,
     to_read: AtomicBool,
 }
 
 pub struct ReadHandle<T> {
-    inner: Arc<Shared<T>>,
+    inner: Arc<Inner<T>>,
 }
 
 pub struct WriteHandle<T> {
-    inner: Arc<Shared<T>>,
+    inner: Arc<Inner<T>>,
 }
 
 impl<T> Inner<T>
@@ -26,31 +22,22 @@ where
     T: Clone,
 {
     fn new(init: T) -> Self {
-        Inner { data: init }
-    }
-}
-
-impl<T> Shared<T>
-where
-    T: Clone,
-{
-    fn new(init: T) -> Self {
-        Shared {
-            inner: Mutex::new(Inner::new(init)),
+        Inner {
+            data: Mutex::new(init),
             to_read: AtomicBool::new(false),
         }
     }
 
     fn write(&self, value: T) {
-        let mut inner = self.inner.lock().unwrap();
-        inner.data = value;
+        let mut data = self.data.lock().unwrap();
+        *data = value;
         self.to_read.store(true, Ordering::Release);
     }
 
     fn read(&self, value: &mut T) -> bool {
         if self.to_read.load(Ordering::Acquire) {
-            let inner = self.inner.lock().unwrap();
-            *value = inner.data.clone();
+            let data = self.data.lock().unwrap();
+            *value = T::clone(&data);
             self.to_read.store(false, Ordering::Release);
             true
         } else {
@@ -81,7 +68,7 @@ pub fn new<T>(init: T) -> (ReadHandle<T>, WriteHandle<T>)
 where
     T: Clone,
 {
-    let inner = Arc::new(Shared::new(init));
+    let inner = Arc::new(Inner::new(init));
     let r = ReadHandle {
         inner: Arc::clone(&inner),
     };
