@@ -1,4 +1,6 @@
+use std::fs::OpenOptions;
 use std::hint::black_box;
+use std::io::prelude::*;
 use std::marker::Send;
 use std::sync::mpsc;
 use std::sync::{Arc, Barrier};
@@ -9,6 +11,7 @@ use rustedrazors::{atomic_spsc, mutex_spsc};
 use rustedrazors::{Reader, Writer};
 
 const PAYLOAD_SIZE: usize = 1024;
+const ITERS: usize = 1000000;
 
 #[derive(Clone, Copy)]
 struct Payload {
@@ -28,8 +31,6 @@ where
     R: Reader<Payload> + Send,
     W: Writer<Payload> + Send,
 {
-    const ITERS: usize = 1000000;
-
     let barrier = Arc::new(Barrier::new(2));
     let (tx, rx) = mpsc::channel();
 
@@ -82,8 +83,6 @@ where
     R: Reader<Payload> + Send,
     W: Writer<Payload> + Send,
 {
-    const ITERS: usize = 1000000;
-
     let barrier = Arc::new(Barrier::new(2));
     let (tx, rx) = mpsc::channel();
 
@@ -144,25 +143,31 @@ fn bench_function_impl(
     let (success, failure) = read_fun();
     let writes = write_fun();
 
-    use std::fs::File;
-    use std::io::{BufWriter, Write};
+    let open = |filename| {
+        OpenOptions::new()
+            .write(true)
+            .append(true)
+            .create(true)
+            .open(filename)
+            .expect("Unable to create file")
+    };
 
     let filename = format!("{}_success.txt", name);
-    let mut f = BufWriter::new(File::create(filename).expect("Unable to create file"));
+    let mut f = open(filename);
     for i in success {
-        _ = write!(f, "{0}\n", i);
+        _ = writeln!(f, "{}", i);
     }
 
     let filename = format!("{}_failure.txt", name);
-    let mut f = BufWriter::new(File::create(filename).expect("Unable to create file"));
+    let mut f = open(filename);
     for i in failure {
-        _ = write!(f, "{0}\n", i);
+        _ = writeln!(f, "{}", i);
     }
 
     let filename = format!("{}_writes.txt", name);
-    let mut f = BufWriter::new(File::create(filename).expect("Unable to create file"));
+    let mut f = open(filename);
     for i in writes {
-        _ = write!(f, "{0}\n", i);
+        _ = writeln!(f, "{}", i);
     }
 }
 
