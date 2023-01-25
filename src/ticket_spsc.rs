@@ -24,8 +24,12 @@ impl<T> TicketMutex<T> {
 
     fn lock(&self) -> Result<TicketGuard<'_, T>, ()> {
         let ticket = self.next_ticket.fetch_add(1, Ordering::Relaxed);
+        let mut i = 0;
         while self.now_serving.load(Ordering::Acquire) != ticket {
-            // TODO: yield?
+            i += 1;
+            if i >= 20 {
+                std::thread::yield_now();
+            }
         }
         Ok(TicketGuard::new(&self))
     }
