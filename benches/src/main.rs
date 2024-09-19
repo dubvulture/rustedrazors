@@ -39,12 +39,8 @@ where
             let barrier = Arc::clone(&barrier);
             move || {
                 barrier.wait();
-                let mut value = Payload::default();
                 for i in 0usize.. {
-                    black_box(value);
-                    if let Some(new_value) = r.read() {
-                        value = new_value;
-                    }
+                    black_box(r.read());
                     if i % 64 == 0 && rx.try_recv().is_ok() {
                         break;
                     }
@@ -59,8 +55,7 @@ where
                 let mut success = Vec::with_capacity(ITERS);
                 for _ in 0..ITERS {
                     let start = Instant::now();
-                    black_box(value);
-                    w.write(value);
+                    black_box(w.write(black_box(value)));
                     let ns = start.elapsed().as_nanos();
                     success.push(ns);
                 }
@@ -97,8 +92,7 @@ where
                 let mut failure = Vec::with_capacity(ITERS);
                 for _ in 0..ITERS {
                     let start = Instant::now();
-                    let res = r.read();
-                    black_box(res);
+                    let res = black_box(r.read());
                     let ns = start.elapsed().as_nanos();
                     if res.is_some() {
                         success.push(ns);
@@ -116,8 +110,7 @@ where
                 barrier.wait();
                 let value = Payload::default();
                 for i in 0usize.. {
-                    black_box(value);
-                    w.write(value);
+                    black_box(w.write(black_box(value)));
                     if i % 64 == 0 && rx.try_recv().is_ok() {
                         break;
                     }
