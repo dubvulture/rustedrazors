@@ -68,8 +68,10 @@ where
     }
 
     fn write_to(&self, idx: usize, value: T) {
-        let pool = self.pool[idx].get();
-        unsafe { *pool = value }
+        unsafe {
+            let pool = self.pool.get_unchecked(idx).get();
+            *pool = value
+        }
     }
 
     /// Try reading the last written value.
@@ -91,8 +93,10 @@ where
     }
 
     fn read_from(&self, idx: usize) -> T {
-        let pool = self.pool[idx].get();
-        unsafe { (*pool).clone() }
+        unsafe {
+            let pool = self.pool.get_unchecked(idx).get();
+            (*pool).clone()
+        }
     }
 
     /// Returns the index of the first available object in the pool, while marking it as in use.
