@@ -1,5 +1,5 @@
 pub trait Reader<T> {
-    fn read(&self, value: &mut T) -> bool;
+    fn read(&self) -> Option<T>;
 }
 
 pub trait Writer<T> {

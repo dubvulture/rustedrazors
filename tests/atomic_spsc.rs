@@ -37,8 +37,7 @@ mod tests {
         let (clone_r, clone_w) = atomic_spsc::new::<ClonePayload>(ClonePayload::default());
 
         let _ = thread::spawn(move || {
-            let mut clone_p = ClonePayload::default();
-            clone_r.read(&mut clone_p);
+            let _ = clone_r.read();
         })
         .join();
         let _ = thread::spawn(move || {
@@ -49,8 +48,7 @@ mod tests {
 
         let (copy_r, copy_w) = atomic_spsc::new::<CopyPayload>(CopyPayload::default());
         let _ = thread::spawn(move || {
-            let mut copy_p = CopyPayload::default();
-            copy_r.read(&mut copy_p);
+            let _ = copy_r.read();
         })
         .join();
         let _ = thread::spawn(move || {
@@ -66,35 +64,30 @@ mod tests {
 
         let (r, w) = atomic_spsc::new::<i32>(0);
 
-        let mut value = -1;
-        let mut result: bool;
-
         for _ in 0..5 {
-            result = r.read(&mut value);
-            assert_eq!(result, false, "Read should have failed");
-            assert_eq!(value, -1, "Failed read should not have updated value");
+            let res = r.read();
+            assert_eq!(res, None, "Read should have failed");
         }
 
         w.write(22);
 
-        result = r.read(&mut value);
-        assert_eq!(result, true, "Read should have succeeded");
+        let res = r.read();
         assert_eq!(
-            value, 22,
+            res,
+            Some(22),
             "Read should have returned the value previously written"
         );
 
-        result = r.read(&mut value);
-        assert_eq!(result, false, "Read should have failed");
-        assert_eq!(value, 22, "Failed read should not have updated value");
+        let res = r.read();
+        assert_eq!(res, None, "Read should have failed");
 
         w.write(42);
         w.write(62);
 
-        result = r.read(&mut value);
-        assert_eq!(result, true, "Read should have succeeded");
+        let res = r.read();
         assert_eq!(
-            value, 62,
+            res,
+            Some(62),
             "Read should have returned the value previously written"
         );
     }
@@ -107,9 +100,8 @@ mod tests {
         let (r, w) = atomic_spsc::new::<i32>(0);
 
         let read_res = thread::spawn(move || {
-            let mut value = 0;
             for _ in 0..1000 {
-                r.read(&mut value);
+                let _ = r.read();
             }
         })
         .join();

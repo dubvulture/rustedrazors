@@ -100,14 +100,14 @@ where
         self.to_read.store(true, Ordering::Release);
     }
 
-    fn read(&self, value: &mut T) -> bool {
+    fn read(&self) -> Option<T> {
         if self.to_read.load(Ordering::Acquire) {
-            let data = self.data.lock().unwrap();
-            *value = T::clone(&data);
+            let data = self.data.lock().ok()?;
+            let value = T::clone(&data);
             self.to_read.store(false, Ordering::Release);
-            true
+            Some(value)
         } else {
-            false
+            None
         }
     }
 }
@@ -116,8 +116,8 @@ impl<T> Reader<T> for ReadHandle<T>
 where
     T: Clone,
 {
-    fn read(&self, value: &mut T) -> bool {
-        self.inner.read(value)
+    fn read(&self) -> Option<T> {
+        self.inner.read()
     }
 }
 

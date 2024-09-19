@@ -69,34 +69,30 @@ where
 
     fn write_to(&self, idx: usize, value: T) {
         let pool = self.pool[idx].get();
-        unsafe {
-            *pool = value;
-        }
+        unsafe { *pool = value }
     }
 
     /// Try reading the last written value.
     /// The operation may fail if no new value was written since the last read.
     ///
     /// This method is wait-free.
-    fn read(&self, value: &mut T) -> bool {
+    fn read(&self) -> Option<T> {
         let buffer = self.buffer.swap(-1, Ordering::AcqRel);
         match buffer {
-            -1 => false,
+            -1 => None,
             buffer => {
                 // Safety: this is fine, idx can only be in [0, POOL_SIZE)
                 let buffer = buffer as usize;
-                self.read_from(buffer, value);
+                let value = self.read_from(buffer);
                 self.release(buffer);
-                true
+                Some(value)
             }
         }
     }
 
-    fn read_from(&self, idx: usize, value: &mut T) {
+    fn read_from(&self, idx: usize) -> T {
         let pool = self.pool[idx].get();
-        unsafe {
-            *value = (*pool).clone();
-        }
+        unsafe { (*pool).clone() }
     }
 
     /// Returns the index of the first available object in the pool, while marking it as in use.
@@ -121,8 +117,8 @@ impl<T> Reader<T> for ReadHandle<T>
 where
     T: Clone,
 {
-    fn read(&self, value: &mut T) -> bool {
-        self.inner.read(value)
+    fn read(&self) -> Option<T> {
+        self.inner.read()
     }
 }
 
