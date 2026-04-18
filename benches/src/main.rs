@@ -12,6 +12,7 @@ use rustedrazors::{Reader, Writer};
 
 const PAYLOAD_SIZE: usize = 1024;
 const ITERS: usize = 1000000;
+const CHECK_STOP: usize = 256;
 
 #[derive(Clone, Copy)]
 struct Payload {
@@ -40,8 +41,8 @@ where
             move || {
                 barrier.wait();
                 for i in 0usize.. {
-                    black_box(r.read());
-                    if i % 64 == 0 && rx.try_recv().is_ok() {
+                    let _ = black_box(r.read());
+                    if i % CHECK_STOP == 0 && rx.try_recv().is_ok() {
                         break;
                     }
                 }
@@ -92,9 +93,12 @@ where
                 let mut failure = Vec::with_capacity(ITERS);
                 for _ in 0..ITERS {
                     let start = Instant::now();
-                    let res = black_box(r.read());
+                    let ok = {
+                        let res = black_box(r.read());
+                        res.is_some()
+                    };
                     let ns = start.elapsed().as_nanos();
-                    if res.is_some() {
+                    if ok {
                         success.push(ns);
                     } else {
                         failure.push(ns);
@@ -111,7 +115,7 @@ where
                 let value = Payload::default();
                 for i in 0usize.. {
                     black_box(w.write(black_box(value)));
-                    if i % 64 == 0 && rx.try_recv().is_ok() {
+                    if i % CHECK_STOP == 0 && rx.try_recv().is_ok() {
                         break;
                     }
                 }
