@@ -1,9 +1,11 @@
-pub trait Reader<T> {
-    fn read(&self) -> Option<T>;
+pub trait Reader {
+    type Item;
+    fn read(&self) -> Option<Self::Item>;
 }
 
-pub trait Writer<T> {
-    fn write(&self, value: T);
+pub trait Writer {
+    type Item;
+    fn write(&self, value: Self::Item);
 }
 
 pub mod atomic_spsc;

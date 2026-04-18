@@ -46,19 +46,23 @@ where
     }
 }
 
-impl<T> Reader<T> for ReadHandle<T>
+impl<T> Reader for ReadHandle<T>
 where
     T: Clone,
 {
+    type Item = T;
+
     fn read(&self) -> Option<T> {
         self.inner.read()
     }
 }
 
-impl<T> Writer<T> for WriteHandle<T>
+impl<T> Writer for WriteHandle<T>
 where
     T: Clone,
 {
+    type Item = T;
+
     fn write(&self, value: T) {
         self.inner.write(value)
     }

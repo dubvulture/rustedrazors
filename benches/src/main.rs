@@ -28,8 +28,8 @@ impl Default for Payload {
 
 fn write_ops<R, W>(r: R, w: W) -> Vec<u128>
 where
-    R: Reader<Payload> + Send,
-    W: Writer<Payload> + Send,
+    R: Reader<Item = Payload> + Send,
+    W: Writer<Item = Payload> + Send,
 {
     let barrier = Arc::new(Barrier::new(2));
     let (tx, rx) = mpsc::channel();
@@ -77,8 +77,8 @@ where
 
 fn read_ops<R, W>(r: R, w: W) -> (Vec<u128>, Vec<u128>)
 where
-    R: Reader<Payload> + Send,
-    W: Writer<Payload> + Send,
+    R: Reader<Item = Payload> + Send,
+    W: Writer<Item = Payload> + Send,
 {
     let barrier = Arc::new(Barrier::new(2));
     let (tx, rx) = mpsc::channel();
