@@ -2,7 +2,7 @@ use crate::{Reader, Writer};
 
 /// Implement a trivial atomic_spsc-like data structures using a Mutex
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 struct Inner<T> {
     data: Mutex<T>,
@@ -17,10 +17,7 @@ pub struct WriteHandle<T> {
     inner: Arc<Inner<T>>,
 }
 
-impl<T> Inner<T>
-where
-    T: Clone,
-{
+impl<T> Inner<T> {
     fn new(init: T) -> Self {
         Inner {
             data: Mutex::new(init),
@@ -34,33 +31,30 @@ where
         self.to_read.store(true, Ordering::Release);
     }
 
-    fn read(&self) -> Option<T> {
+    fn read(&self) -> Option<MutexGuard<'_, T>> {
         if self.to_read.load(Ordering::Acquire) {
-            let data = self.data.lock().ok()?;
-            let value = T::clone(&data);
+            let guard = self.data.lock().ok()?;
             self.to_read.store(false, Ordering::Release);
-            Some(value)
+            Some(guard)
         } else {
             None
         }
     }
 }
 
-impl<T> Reader for ReadHandle<T>
-where
-    T: Clone,
-{
+impl<T> Reader for ReadHandle<T> {
     type Item = T;
+    type Guard<'a>
+        = MutexGuard<'a, T>
+    where
+        T: 'a;
 
-    fn read(&self) -> Option<T> {
+    fn read(&self) -> Option<Self::Guard<'_>> {
         self.inner.read()
     }
 }
 
-impl<T> Writer for WriteHandle<T>
-where
-    T: Clone,
-{
+impl<T> Writer for WriteHandle<T> {
     type Item = T;
 
     fn write(&self, value: T) {
@@ -68,10 +62,7 @@ where
     }
 }
 
-pub fn new<T>(init: T) -> (ReadHandle<T>, WriteHandle<T>)
-where
-    T: Clone,
-{
+pub fn new<T>(init: T) -> (ReadHandle<T>, WriteHandle<T>) {
     let inner = Arc::new(Inner::new(init));
     let r = ReadHandle {
         inner: Arc::clone(&inner),

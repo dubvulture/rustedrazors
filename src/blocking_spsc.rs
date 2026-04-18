@@ -37,7 +37,9 @@ where
             buffer: AtomicIsize::new(-1),
         }
     }
+}
 
+impl<T> Inner<T> {
     /// Writes the provided value.
     ///
     /// This method is not wait-free since there is not always a spot in the pool where we can write to.
@@ -45,17 +47,17 @@ where
         let mut idx = -1;
         for i in 0.. {
             idx = self.acquire();
-            if idx != -1 {
+            if idx >= 0 {
                 break;
             }
             if i >= 20 {
                 std::thread::yield_now();
             }
         }
-        self.write_to(idx as usize, value);
         // Safety: this is fine, idx can only be in [0, POOL_SIZE)
+        self.write_to(idx as usize, value);
         let buffer = self.buffer.swap(idx, Ordering::AcqRel);
-        if buffer != -1 {
+        if buffer >= 0 {
             self.release(buffer as usize);
         }
     }
@@ -71,24 +73,26 @@ where
     /// The operation may fail if no new value was written since the last read.
     ///
     /// This method is wait-free.
-    fn read(&self) -> Option<T> {
+    fn read(&self) -> Option<BlockingGuard<'_, T>> {
         let buffer = self.buffer.swap(-1, Ordering::AcqRel);
         match buffer {
             -1 => None,
             buffer => {
                 // Safety: this is fine, idx can only be in [0, POOL_SIZE)
                 let buffer = buffer as usize;
-                let value = self.read_from(buffer);
-                self.release(buffer);
-                Some(value)
+                let guard = BlockingGuard {
+                    inner: self,
+                    idx: buffer,
+                };
+                Some(guard)
             }
         }
     }
 
-    fn read_from(&self, idx: usize) -> T {
+    fn read_from(&self, idx: usize) -> &T {
         unsafe {
             let pool = self.pool.get_unchecked(idx).get();
-            (*pool).clone()
+            &(*pool)
         }
     }
 
@@ -109,21 +113,47 @@ where
     }
 }
 
-impl<T> Reader for ReadHandle<T>
-where
-    T: Clone,
-{
-    type Item = T;
+pub struct BlockingGuard<'a, T> {
+    inner: &'a Inner<T>,
+    idx: usize,
+}
 
-    fn read(&self) -> Option<T> {
+impl<T> std::ops::Deref for BlockingGuard<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        self.inner.read_from(self.idx)
+    }
+}
+
+impl<T> Drop for BlockingGuard<'_, T> {
+    fn drop(&mut self) {
+        self.inner.release(self.idx);
+    }
+}
+
+impl<T> std::fmt::Debug for BlockingGuard<'_, T>
+where
+    T: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<T> Reader for ReadHandle<T> {
+    type Item = T;
+    type Guard<'a>
+        = BlockingGuard<'a, T>
+    where
+        T: 'a;
+
+    fn read(&self) -> Option<Self::Guard<'_>> {
         self.inner.read()
     }
 }
 
-impl<T> Writer for WriteHandle<T>
-where
-    T: Clone,
-{
+impl<T> Writer for WriteHandle<T> {
     type Item = T;
 
     fn write(&self, value: T) {

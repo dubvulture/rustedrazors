@@ -66,30 +66,40 @@ mod tests {
 
         for _ in 0..5 {
             let res = r.read();
-            assert_eq!(res, None, "Read should have failed");
+            assert!(res.is_none(), "Read should have failed");
         }
 
         w.write(22);
 
-        let res = r.read();
-        assert_eq!(
-            res,
-            Some(22),
-            "Read should have returned the value previously written"
-        );
+        {
+            let res = r.read();
+            assert!(res.is_some());
+            assert_eq!(
+                res.as_deref(),
+                Some(&22),
+                "Read should have returned the value previously written"
+            );
+            // drop the guard
+        }
 
-        let res = r.read();
-        assert_eq!(res, None, "Read should have failed");
+        {
+            let res = r.read();
+            assert!(res.is_none(), "Read should have failed");
+            // drop the guard
+        }
 
         w.write(42);
         w.write(62);
 
-        let res = r.read();
-        assert_eq!(
-            res,
-            Some(62),
-            "Read should have returned the value previously written"
-        );
+        {
+            let res = r.read();
+            assert_eq!(
+                res.as_deref(),
+                Some(&62),
+                "Read should have returned the value previously written"
+            );
+            // drop the guard
+        }
     }
 
     #[test]

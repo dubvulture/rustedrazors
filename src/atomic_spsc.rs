@@ -53,7 +53,9 @@ where
             buffer: AtomicIsize::new(-1),
         }
     }
+}
 
+impl<T> Inner<T> {
     /// Writes the provided value.
     ///
     /// This method is wait-free since there is always a spot in the pool where we can write to.
@@ -78,24 +80,26 @@ where
     /// The operation may fail if no new value was written since the last read.
     ///
     /// This method is wait-free.
-    fn read(&self) -> Option<T> {
+    fn read(&self) -> Option<AtomicGuard<'_, T>> {
         let buffer = self.buffer.swap(-1, Ordering::AcqRel);
         match buffer {
             -1 => None,
             buffer => {
                 // Safety: this is fine, idx can only be in [0, POOL_SIZE)
                 let buffer = buffer as usize;
-                let value = self.read_from(buffer);
-                self.release(buffer);
-                Some(value)
+                let guard = AtomicGuard {
+                    inner: self,
+                    idx: buffer,
+                };
+                Some(guard)
             }
         }
     }
 
-    fn read_from(&self, idx: usize) -> T {
+    fn read_from(&self, idx: usize) -> &T {
         unsafe {
             let pool = self.pool.get_unchecked(idx).get();
-            (*pool).clone()
+            &(*pool)
         }
     }
 
@@ -117,21 +121,47 @@ where
     }
 }
 
-impl<T> Reader for ReadHandle<T>
-where
-    T: Clone,
-{
-    type Item = T;
+pub struct AtomicGuard<'a, T> {
+    inner: &'a Inner<T>,
+    idx: usize,
+}
 
-    fn read(&self) -> Option<T> {
+impl<T> std::ops::Deref for AtomicGuard<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        self.inner.read_from(self.idx)
+    }
+}
+
+impl<T> Drop for AtomicGuard<'_, T> {
+    fn drop(&mut self) {
+        self.inner.release(self.idx);
+    }
+}
+
+impl<T> std::fmt::Debug for AtomicGuard<'_, T>
+where
+    T: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<T> Reader for ReadHandle<T> {
+    type Item = T;
+    type Guard<'a>
+        = AtomicGuard<'a, T>
+    where
+        T: 'a;
+
+    fn read(&self) -> Option<Self::Guard<'_>> {
         self.inner.read()
     }
 }
 
-impl<T> Writer for WriteHandle<T>
-where
-    T: Clone,
-{
+impl<T> Writer for WriteHandle<T> {
     type Item = T;
 
     fn write(&self, value: T) {

@@ -66,28 +66,28 @@ mod tests {
 
         for _ in 0..5 {
             let res = r.read();
-            assert_eq!(res, None, "Read should have failed");
+            assert!(res.is_none(), "Read should have failed");
         }
 
         w.write(22);
 
         let res = r.read();
         assert_eq!(
-            res,
-            Some(22),
+            res.as_deref(),
+            Some(&22),
             "Read should have returned the value previously written"
         );
 
         let res = r.read();
-        assert_eq!(res, None, "Read should have failed");
+        assert!(res.is_none(), "Read should have failed");
 
         w.write(42);
         w.write(62);
 
         let res = r.read();
         assert_eq!(
-            res,
-            Some(62),
+            res.as_deref(),
+            Some(&62),
             "Read should have returned the value previously written"
         );
     }
