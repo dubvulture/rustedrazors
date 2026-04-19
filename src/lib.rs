@@ -17,6 +17,5 @@ pub trait Writer {
 }
 
 pub mod atomic_spsc;
-pub mod blocking_spsc;
 pub mod mutex_spsc;
 pub mod ticket_spsc;

@@ -12,7 +12,7 @@ def parse(filename):
     return res
 
 def main():
-    benches = ["atomic", "blocking", "mutex", "ticket"]
+    benches = ["atomic", "mutex", "ticket"]
     colors = ["red", "green", "purple", "blue"]
     fig, axes = plt.subplots(len(benches), 3)
 
