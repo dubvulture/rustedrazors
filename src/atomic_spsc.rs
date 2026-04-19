@@ -1,7 +1,9 @@
-use crate::{Reader, Writer};
+use crate::{ReadGuard, ReadState, Reader, Writer};
 
 use std::cell::{Cell, UnsafeCell};
+use std::fmt;
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::Arc;
 
@@ -12,6 +14,7 @@ struct Inner<T> {
     free: [AtomicBool; POOL_SIZE],
     // either -1 or in [0, POOL_SIZE)
     buffer: AtomicIsize,
+    old_read_idx: UnsafeCell<usize>,
 }
 
 /// This is a Single-Producer/Single-Consumer data structure so we must follow these laws:
@@ -51,6 +54,7 @@ where
             pool: [(); POOL_SIZE].map(|_| UnsafeCell::new(init.clone())),
             free: [(); POOL_SIZE].map(|_| AtomicBool::new(true)),
             buffer: AtomicIsize::new(-1),
+            old_read_idx: UnsafeCell::new(0),
         }
     }
 }
@@ -64,7 +68,7 @@ impl<T> Inner<T> {
         self.write_to(idx, value);
         // Safety: this is fine, idx can only be in [0, POOL_SIZE)
         let buffer = self.buffer.swap(idx as isize, Ordering::AcqRel);
-        if buffer != -1 {
+        if buffer >= 0 {
             self.release(buffer as usize);
         }
     }
@@ -77,21 +81,36 @@ impl<T> Inner<T> {
     }
 
     /// Try reading the last written value.
-    /// The operation may fail if no new value was written since the last read.
+    /// The operation may return the previously read value if no new value was written since the
+    /// last read.
     ///
     /// This method is wait-free.
-    fn read(&self) -> Option<AtomicGuard<'_, T>> {
-        let buffer = self.buffer.swap(-1, Ordering::AcqRel);
-        match buffer {
-            -1 => None,
-            buffer => {
-                // Safety: this is fine, idx can only be in [0, POOL_SIZE)
-                let buffer = buffer as usize;
-                let guard = AtomicGuard {
-                    inner: self,
-                    idx: buffer,
-                };
-                Some(guard)
+    fn read(&self) -> Guard<'_, T> {
+        // SAFETY: Single Consumer, this is only used by a single reader
+        let old_read_idx = unsafe { *self.old_read_idx.get() };
+        let buffer = self.buffer.load(Ordering::Relaxed);
+        if buffer < 0 {
+            // Nothing to read, reuse old read index, without releasing it yet
+            let data = self.read_from(old_read_idx);
+            Guard {
+                data,
+                state: ReadState::Stale,
+            }
+        } else {
+            // Release before performing the swap, otherwise we might starve the Writer.
+            self.release(old_read_idx);
+            // Swap just in case the Writer has updated the value since the last load
+            let buffer = self.buffer.swap(-1, Ordering::AcqRel);
+            // SAFETY: Here, buffer can only be in [0, POOL_SIZE)
+            let new_read_idx = buffer as usize;
+            // SAFETY: Single Consumer, this is only used by a single reader
+            unsafe {
+                *self.old_read_idx.get() = new_read_idx;
+            };
+            let data = self.read_from(new_read_idx);
+            Guard {
+                data,
+                state: ReadState::Fresh,
             }
         }
     }
@@ -121,42 +140,42 @@ impl<T> Inner<T> {
     }
 }
 
-pub struct AtomicGuard<'a, T> {
-    inner: &'a Inner<T>,
-    idx: usize,
+pub struct Guard<'a, T> {
+    data: &'a T,
+    state: ReadState,
 }
 
-impl<T> std::ops::Deref for AtomicGuard<'_, T> {
+impl<'a, T> ReadGuard<'a, T> for Guard<'a, T> {
+    fn state(&self) -> ReadState {
+        self.state
+    }
+}
+
+impl<T> Deref for Guard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        self.inner.read_from(self.idx)
+        self.data
     }
 }
 
-impl<T> Drop for AtomicGuard<'_, T> {
-    fn drop(&mut self) {
-        self.inner.release(self.idx);
-    }
-}
-
-impl<T> std::fmt::Debug for AtomicGuard<'_, T>
+impl<T> fmt::Debug for Guard<'_, T>
 where
-    T: std::fmt::Debug,
+    T: fmt::Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(&**self, f)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
     }
 }
 
 impl<T> Reader for ReadHandle<T> {
     type Item = T;
     type Guard<'a>
-        = AtomicGuard<'a, T>
+        = Guard<'a, T>
     where
         T: 'a;
 
-    fn read(&self) -> Option<Self::Guard<'_>> {
+    fn read(&self) -> Self::Guard<'_> {
         self.inner.read()
     }
 }

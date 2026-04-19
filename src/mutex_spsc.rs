@@ -1,12 +1,13 @@
-use crate::{Reader, Writer};
+use crate::{ReadGuard, ReadState, Reader, Writer};
 
-/// Implement a trivial atomic_spsc-like data structures using a Mutex
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::fmt;
+use std::ops::Deref;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+/// Implement a trivial atomic_spsc-like data structures using a Mutex
+
 struct Inner<T> {
-    data: Mutex<T>,
-    to_read: AtomicBool,
+    data: Mutex<(T, ReadState)>,
 }
 
 pub struct ReadHandle<T> {
@@ -20,36 +21,67 @@ pub struct WriteHandle<T> {
 impl<T> Inner<T> {
     fn new(init: T) -> Self {
         Inner {
-            data: Mutex::new(init),
-            to_read: AtomicBool::new(false),
+            data: Mutex::new((init, ReadState::Stale)),
         }
     }
 
     fn write(&self, value: T) {
-        let mut data = self.data.lock().unwrap();
-        *data = value;
-        self.to_read.store(true, Ordering::Release);
+        // acquire mutex, update value and set it as "Fresh"
+        let mut guard = self.data.lock().unwrap();
+        guard.0 = value;
+        guard.1 = ReadState::Fresh;
     }
 
-    fn read(&self) -> Option<MutexGuard<'_, T>> {
-        if self.to_read.load(Ordering::Acquire) {
-            let guard = self.data.lock().ok()?;
-            self.to_read.store(false, Ordering::Release);
-            Some(guard)
-        } else {
-            None
-        }
+    fn read(&self) -> Guard<'_, T> {
+        // acquire mutex and return it as custom guard that will set it as "Stale" after dropping
+        let guard = self.data.lock().unwrap();
+        Guard { guard }
+    }
+}
+
+/// This is only needed because we want to disallow DerefMut and implement our custom Drop
+pub struct Guard<'a, T> {
+    guard: MutexGuard<'a, (T, ReadState)>,
+}
+
+impl<T> Deref for Guard<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.guard.0
+    }
+}
+
+impl<T> fmt::Debug for Guard<'_, T>
+where
+    T: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+
+/// This is needed to set ReadState to Stale when dropping the Guard
+impl<T> Drop for Guard<'_, T> {
+    fn drop(&mut self) {
+        self.guard.1 = ReadState::Stale;
+    }
+}
+
+impl<'a, T> ReadGuard<'a, T> for Guard<'a, T> {
+    fn state(&self) -> ReadState {
+        self.guard.1
     }
 }
 
 impl<T> Reader for ReadHandle<T> {
     type Item = T;
     type Guard<'a>
-        = MutexGuard<'a, T>
+        = Guard<'a, T>
     where
         T: 'a;
 
-    fn read(&self) -> Option<Self::Guard<'_>> {
+    fn read(&self) -> Self::Guard<'_> {
         self.inner.read()
     }
 }
