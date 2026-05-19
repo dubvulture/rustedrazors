@@ -4,7 +4,7 @@ mod tests {
     use std::thread;
 
     use rustedrazors::mutex_spsc;
-    use rustedrazors::{ReadGuard, Reader, Writer};
+    use rustedrazors::{Reader, Writer};
 
     #[derive(Clone)]
     struct ClonePayload {
@@ -66,16 +66,17 @@ mod tests {
 
         for _ in 0..5 {
             let res = r.read();
-            assert!(res.is_stale(), "Read should have failed");
+            assert!(res.is_none(), "Read should have failed");
         }
 
         w.write(22);
 
         {
             let res = r.read();
-            assert!(res.is_fresh(), "Read should have returned a fresh value");
+            assert!(res.is_some(), "Read should have returned a fresh value");
             assert_eq!(
-                *res, 22,
+                *res.unwrap(),
+                22,
                 "Read should have returned the value previously written"
             );
             // drop the guard
@@ -83,7 +84,7 @@ mod tests {
 
         {
             let res = r.read();
-            assert!(res.is_stale(), "Read should have failed");
+            assert!(res.is_none(), "Read should have failed");
             // drop the guard
         }
 
@@ -92,9 +93,10 @@ mod tests {
 
         {
             let res = r.read();
-            assert!(res.is_fresh(), "Read should have returned a fresh value");
+            assert!(res.is_some(), "Read should have returned a fresh value");
             assert_eq!(
-                *res, 62,
+                *res.unwrap(),
+                62,
                 "Read should have returned the value previously written"
             );
             // drop the guard

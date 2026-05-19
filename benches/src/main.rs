@@ -8,7 +8,7 @@ use std::thread;
 use std::time::Instant;
 
 use rustedrazors::{atomic_spsc, mutex_spsc, ticket_spsc};
-use rustedrazors::{ReadGuard, Reader, Writer};
+use rustedrazors::{Reader, Writer};
 
 const PAYLOAD_SIZE: usize = 1024;
 const ITERS: usize = 1000000;
@@ -95,7 +95,7 @@ where
                     let start = Instant::now();
                     let ok = {
                         let res = black_box(r.read());
-                        res.is_fresh()
+                        res.is_some()
                     };
                     let ns = start.elapsed().as_nanos();
                     if ok {

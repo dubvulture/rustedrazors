@@ -1,8 +1,8 @@
-use crate::{ReadGuard, ReadState, Reader, Writer};
+use crate::{Reader, Writer};
 
 use std::cell::UnsafeCell;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 struct TicketMutex<T> {
@@ -35,6 +35,7 @@ impl<T> TicketMutex<T> {
     }
 
     fn unlock(&self) {
+        // this is faster than a fetch_add since we assume SPSC behavior
         let now_serving = self.now_serving.load(Ordering::Relaxed) + 1;
         self.now_serving.store(now_serving, Ordering::Release);
     }
@@ -71,7 +72,8 @@ impl<T> Drop for TicketGuard<'_, T> {
 }
 
 struct Inner<T> {
-    data: TicketMutex<(T, ReadState)>,
+    data: TicketMutex<T>,
+    dirty: AtomicBool,
 }
 
 pub struct ReadHandle<T> {
@@ -85,45 +87,34 @@ pub struct WriteHandle<T> {
 impl<T> Inner<T> {
     fn new(init: T) -> Self {
         Inner {
-            data: TicketMutex::new((init, ReadState::Stale)),
+            data: TicketMutex::new(init),
+            dirty: AtomicBool::new(false),
         }
     }
 
     fn write(&self, value: T) {
-        // acquire mutex, update value and set it as "Fresh"
+        // acquire mutex, update value and set it as dirty
         let mut guard = self.data.lock().unwrap();
-        guard.0 = value;
-        guard.1 = ReadState::Fresh;
+        *guard = value;
+        self.dirty.store(true, Ordering::Release);
     }
 
-    fn read(&self) -> Guard<'_, T> {
-        // acquire mutex and return it as custom guard that will set it as "Stale" after dropping
-        let guard = self.data.lock().unwrap();
-        Guard { guard }
+    fn read(&self) -> Option<Guard<'_, T>> {
+        // return guarded value only if dirty, while "cleaning" it if acquired
+        self.dirty
+            .swap(false, Ordering::AcqRel)
+            .then_some(Guard(self.data.lock().unwrap()))
     }
 }
 
-pub struct Guard<'a, T> {
-    guard: TicketGuard<'a, (T, ReadState)>,
-}
+/// This is only needed because we want to disallow DerefMut
+pub struct Guard<'a, T>(TicketGuard<'a, T>);
 
 impl<T> Deref for Guard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        &self.guard.0
-    }
-}
-
-impl<T> Drop for Guard<'_, T> {
-    fn drop(&mut self) {
-        self.guard.1 = ReadState::Stale;
-    }
-}
-
-impl<'a, T> ReadGuard<'a, T> for Guard<'a, T> {
-    fn state(&self) -> ReadState {
-        self.guard.1
+        &self.0
     }
 }
 
@@ -142,7 +133,7 @@ impl<T> Reader for ReadHandle<T> {
     where
         T: 'a;
 
-    fn read(&self) -> Self::Guard<'_> {
+    fn read(&self) -> Option<Self::Guard<'_>> {
         self.inner.read()
     }
 }

@@ -1,4 +1,4 @@
-use crate::{ReadGuard, ReadState, Reader, Writer};
+use crate::{Reader, Writer};
 
 use std::cell::{Cell, UnsafeCell};
 use std::fmt;
@@ -14,7 +14,6 @@ struct Inner<T> {
     free: [AtomicBool; POOL_SIZE],
     // either -1 or in [0, POOL_SIZE)
     buffer: AtomicIsize,
-    old_read_idx: UnsafeCell<usize>,
 }
 
 /// This is a Single-Producer/Single-Consumer data structure so we must follow these laws:
@@ -54,7 +53,6 @@ where
             pool: [(); POOL_SIZE].map(|_| UnsafeCell::new(init.clone())),
             free: [(); POOL_SIZE].map(|_| AtomicBool::new(true)),
             buffer: AtomicIsize::new(-1),
-            old_read_idx: UnsafeCell::new(0),
         }
     }
 }
@@ -81,37 +79,20 @@ impl<T> Inner<T> {
     }
 
     /// Try reading the last written value.
-    /// The operation may return the previously read value if no new value was written since the
-    /// last read.
+    /// The operation may return None if no new value was written since the last read.
     ///
     /// This method is wait-free.
-    fn read(&self) -> Guard<'_, T> {
-        // SAFETY: Single Consumer, this is only used by a single reader
-        let old_read_idx = unsafe { *self.old_read_idx.get() };
-        let buffer = self.buffer.load(Ordering::Relaxed);
-        if buffer < 0 {
-            // Nothing to read, reuse old read index, without releasing it yet
-            let data = self.read_from(old_read_idx);
-            Guard {
-                data,
-                state: ReadState::Stale,
-            }
+    fn read(&self) -> Option<Guard<'_, T>> {
+        let buffer = self.buffer.swap(-1, Ordering::AcqRel);
+        if buffer >= 0 {
+            // SAFETY: welp, see if condition
+            let buffer = buffer as usize;
+            Some(Guard {
+                inner: self,
+                idx: buffer,
+            })
         } else {
-            // Release before performing the swap, otherwise we might starve the Writer.
-            self.release(old_read_idx);
-            // Swap just in case the Writer has updated the value since the last load
-            let buffer = self.buffer.swap(-1, Ordering::AcqRel);
-            // SAFETY: Here, buffer can only be in [0, POOL_SIZE)
-            let new_read_idx = buffer as usize;
-            // SAFETY: Single Consumer, this is only used by a single reader
-            unsafe {
-                *self.old_read_idx.get() = new_read_idx;
-            };
-            let data = self.read_from(new_read_idx);
-            Guard {
-                data,
-                state: ReadState::Fresh,
-            }
+            None
         }
     }
 
@@ -141,21 +122,21 @@ impl<T> Inner<T> {
 }
 
 pub struct Guard<'a, T> {
-    data: &'a T,
-    state: ReadState,
-}
-
-impl<'a, T> ReadGuard<'a, T> for Guard<'a, T> {
-    fn state(&self) -> ReadState {
-        self.state
-    }
+    inner: &'a Inner<T>,
+    idx: usize,
 }
 
 impl<T> Deref for Guard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        self.data
+        self.inner.read_from(self.idx)
+    }
+}
+
+impl<T> Drop for Guard<'_, T> {
+    fn drop(&mut self) {
+        self.inner.release(self.idx);
     }
 }
 
@@ -175,7 +156,7 @@ impl<T> Reader for ReadHandle<T> {
     where
         T: 'a;
 
-    fn read(&self) -> Self::Guard<'_> {
+    fn read(&self) -> Option<Self::Guard<'_>> {
         self.inner.read()
     }
 }
